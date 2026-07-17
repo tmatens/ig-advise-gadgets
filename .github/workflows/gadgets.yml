@@ -1,0 +1,90 @@
+name: gadgets
+
+# Build (and on tag, push) the image-based gadgets. Build compiles the eBPF +
+# WASM operator and needs no root; the OCI store dir is pre-created for the
+# runner user so build/push do not need root.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - "gadget/*/v*" # e.g. gadget/advise_capabilities/v0.1.0
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gadget: [advise_capabilities, advise_filesystem, advise_devices]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: ${{ matrix.gadget }}/go/go.mod
+
+      - name: Unit test gadget advice logic
+        working-directory: ${{ matrix.gadget }}/go
+        run: go test ./advice/...
+
+      - name: Install ig
+        run: |
+          IG_VERSION="$(cat IG_VERSION)"
+          echo "Using ig ${IG_VERSION}"
+          curl -sSL -o /tmp/ig.tar.gz \
+            "https://github.com/inspektor-gadget/inspektor-gadget/releases/download/${IG_VERSION}/ig-linux-amd64-${IG_VERSION}.tar.gz"
+          sudo tar -C /usr/local/bin -xzf /tmp/ig.tar.gz ig
+          sudo install -d -o "$USER" /var/lib/ig
+
+      - name: Build gadget (eBPF + WASM)
+        run: ig image build "${{ matrix.gadget }}" -t "ghcr.io/${{ github.repository_owner }}/${{ matrix.gadget }}:ci"
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/gadget/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Parse tag
+        id: tag
+        run: |
+          # refs/tags/gadget/<name>/v<version>
+          ref="${GITHUB_REF#refs/tags/gadget/}"
+          echo "gadget=${ref%%/*}" >> "$GITHUB_OUTPUT"
+          echo "version=${ref##*/v}" >> "$GITHUB_OUTPUT"
+      - name: Install ig
+        run: |
+          IG_VERSION="$(cat IG_VERSION)"
+          curl -sSL -o /tmp/ig.tar.gz \
+            "https://github.com/inspektor-gadget/inspektor-gadget/releases/download/${IG_VERSION}/ig-linux-amd64-${IG_VERSION}.tar.gz"
+          sudo tar -C /usr/local/bin -xzf /tmp/ig.tar.gz ig
+          sudo install -d -o "$USER" /var/lib/ig
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | ig image login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push
+        run: |
+          G="${{ steps.tag.outputs.gadget }}"
+          V="${{ steps.tag.outputs.version }}"
+          IMG="ghcr.io/${{ github.repository_owner }}/${G}"
+          ig image build "${G}" -t "${IMG}:${V}"
+          ig image push "${IMG}:${V}"
+      - name: Sign image (if a cosign key is configured)
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          if [ -z "${COSIGN_PRIVATE_KEY}" ]; then
+            echo "no COSIGN_PRIVATE_KEY secret configured; skipping signing"
+            exit 0
+          fi
+          G="${{ steps.tag.outputs.gadget }}"
+          V="${{ steps.tag.outputs.version }}"
+          ig image sign "ghcr.io/${{ github.repository_owner }}/${G}:${V}"

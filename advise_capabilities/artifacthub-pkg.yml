@@ -1,0 +1,31 @@
+# Artifact Hub package metadata file
+version: 0.1.0
+name: "advise capabilities"
+category: security
+displayName: "advise capabilities"
+createdAt: "2026-07-02T00:00:00Z"
+description: "Derive the minimum Linux capability set each container actually uses"
+logoURL: "https://inspektor-gadget.io/media/brand-icon.svg"
+license: "GPL-2.0-only AND Apache-2.0"
+homeURL: "https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_capabilities"
+containersImages:
+    - name: gadget
+      image: "ghcr.io/tmatens/advise_capabilities:latest"
+      platforms:
+        - linux/amd64
+        - linux/arm64
+keywords:
+    - gadget
+    - capabilities
+    - least-privilege
+    - security
+links:
+    - name: source
+      url: "https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_capabilities"
+install: |
+    # Run
+    ```bash
+    sudo ig run ghcr.io/tmatens/advise_capabilities:latest --containername my-app
+    ```
+provider:
+    name: ig-advise-gadgets

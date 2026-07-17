@@ -1,0 +1,26 @@
+name: advise devices
+description: "Derive the minimal devices grant from the /dev nodes a container opens"
+homepageURL: https://github.com/tmatens/ig-advise-gadgets
+documentationURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_devices
+sourceURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_devices
+datasources:
+  devices:
+    annotations:
+      cli.supported-output-modes: none
+      ebpf.map.flush-on-stop: true
+    fields:
+      path:
+        annotations:
+          columns.hidden: true
+      count:
+        annotations:
+          columns.hidden: true
+      mntns_id_raw:
+        annotations:
+          columns.hidden: true
+  advise:
+    annotations:
+      cli.supported-output-modes: advise
+      cli.default-output-mode: advise
+paramDefaults:
+  operator.oci.ebpf.map-fetch-interval: "0"

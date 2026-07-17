@@ -1,0 +1,27 @@
+name: advise filesystem
+description: Derive a read-only rootfs + the tmpfs paths a container actually writes
+homepageURL: https://github.com/tmatens/ig-advise-gadgets
+documentationURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem
+sourceURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem
+datasources:
+  files:
+    annotations:
+      # Raw per-(container,path) map iterator; consumed by the WASM operator.
+      cli.supported-output-modes: none
+      ebpf.map.flush-on-stop: true
+    fields:
+      path:
+        annotations:
+          columns.hidden: true
+      count:
+        annotations:
+          columns.hidden: true
+      mntns_id_raw:
+        annotations:
+          columns.hidden: true
+  advise:
+    annotations:
+      cli.supported-output-modes: advise
+      cli.default-output-mode: advise
+paramDefaults:
+  operator.oci.ebpf.map-fetch-interval: "0"

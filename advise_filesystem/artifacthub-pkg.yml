@@ -1,0 +1,33 @@
+# Artifact Hub package metadata file
+version: 0.1.0
+name: "advise filesystem"
+category: security
+displayName: "advise filesystem"
+createdAt: "2026-07-02T00:00:00Z"
+description: "Derive a read-only rootfs + the tmpfs paths a container actually writes"
+logoURL: "https://inspektor-gadget.io/media/brand-icon.svg"
+license: "GPL-2.0-only AND Apache-2.0"
+homeURL: "https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem"
+containersImages:
+    - name: gadget
+      image: "ghcr.io/tmatens/advise_filesystem:latest"
+      platforms:
+        - linux/amd64
+        - linux/arm64
+keywords:
+    - gadget
+    - filesystem
+    - read-only
+    - tmpfs
+    - least-privilege
+    - security
+links:
+    - name: source
+      url: "https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem"
+install: |
+    # Run
+    ```bash
+    sudo ig run ghcr.io/tmatens/advise_filesystem:latest --containername my-app
+    ```
+provider:
+    name: ig-advise-gadgets

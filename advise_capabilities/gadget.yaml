@@ -1,0 +1,26 @@
+name: advise capabilities
+description: Derive the minimum Linux capability set each container actually uses
+homepageURL: https://github.com/tmatens/ig-advise-gadgets
+documentationURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_capabilities
+sourceURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_capabilities
+datasources:
+  capabilities:
+    annotations:
+      # Raw per-container map iterator; the WASM operator consumes it and the
+      # front-end never renders it directly.
+      cli.supported-output-modes: none
+      ebpf.map.flush-on-stop: true
+    fields:
+      caps:
+        annotations:
+          columns.hidden: true
+      mntns_id_raw:
+        annotations:
+          columns.hidden: true
+  advise:
+    annotations:
+      cli.supported-output-modes: advise
+      cli.default-output-mode: advise
+paramDefaults:
+  # Aggregate for the whole run and emit once on stop (advisor semantics).
+  operator.oci.ebpf.map-fetch-interval: "0"
