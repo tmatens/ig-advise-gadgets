@@ -81,6 +81,10 @@ runtime-suppressed and mntns-keyed, reusing `trace_open`'s path resolution.
 
 - Dynamic-observation floor: only what the workload exercised in the window is
   seen — a signal, not a proof; grade confidence before enforcing.
+- The aggregation maps are fixed-size, but overflow is **loud, not silent**: a
+  `drops` counter tracks every failed insert and, when non-zero, the operator
+  logs a warning and appends a `# WARNING: … recommendation may be incomplete`
+  YAML comment to every advice packet.
 - The capability bit→name mapping assumes kernel order (0..40); guarded by a unit
   test against the canonical list.
 - Opinionated judgement — confidence grading, entrypoint cross-checks,

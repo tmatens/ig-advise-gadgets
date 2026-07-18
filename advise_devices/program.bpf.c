@@ -61,6 +61,24 @@ static __always_inline bool is_dev_path(const char *path)
 // the rationale in advise_capabilities/program.bpf.c. Under --containername, ig's
 // container-registration boundary already excludes the runtime's setup opens.
 
+// An advisor must not silently under-report: a failed aggregation-map insert
+// means the recommendation is missing a device the workload opened. Count every
+// such failure; the WASM operator surfaces a warning when non-zero.
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} drops SEC(".maps");
+
+static __always_inline void count_drop(void)
+{
+	__u32 z = 0;
+	__u64 *d = bpf_map_lookup_elem(&drops, &z);
+	if (d)
+		__sync_fetch_and_add(d, 1);
+}
+
 // The fd being opened is the syscall return value, so the device path can be
 // resolved entirely at exit — no enter hook / args stashing is needed.
 static __always_inline int trace_exit(struct syscall_trace_exit *ctx)
@@ -90,6 +108,8 @@ static __always_inline int trace_exit(struct syscall_trace_exit *ctx)
 	v = bpf_map_lookup_or_try_init(&devices_per_mntns, k, &zero);
 	if (v)
 		__sync_fetch_and_add(&v->count, 1);
+	else
+		count_drop(); // aggregation map full: this device open is lost
 	return 0;
 }
 

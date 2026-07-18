@@ -145,3 +145,16 @@ func isSorted(s []string) bool {
 	}
 	return true
 }
+
+func TestOverflowWarning(t *testing.T) {
+	if got := OverflowWarning(0); got != "" {
+		t.Fatalf("OverflowWarning(0) = %q, want empty", got)
+	}
+	got := OverflowWarning(7)
+	if !strings.HasPrefix(got, "# ") {
+		t.Fatalf("warning must stay a YAML comment so advice output remains parseable, got %q", got)
+	}
+	if !strings.Contains(got, "7") || !strings.Contains(got, "incomplete") {
+		t.Fatalf("warning missing count or incompleteness wording: %q", got)
+	}
+}

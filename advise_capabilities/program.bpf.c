@@ -78,6 +78,26 @@ struct {
 	__type(value, struct args_t);
 } start SEC(".maps");
 
+// An advisor must not silently under-report: a failed map insert means the
+// final recommendation is missing something the workload exercised. Every such
+// failure is counted here; the WASM operator reads the counter at flush and
+// surfaces a warning so an incomplete recommendation is never mistaken for a
+// complete one.
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} drops SEC(".maps");
+
+static __always_inline void count_drop(void)
+{
+	__u32 z = 0;
+	__u64 *d = bpf_map_lookup_elem(&drops, &z);
+	if (d)
+		__sync_fetch_and_add(d, 1);
+}
+
 SEC("kprobe/cap_capable")
 int BPF_KPROBE(ig_cap_e, const struct cred *cred,
 	       struct user_namespace *targ_ns, int cap, int cap_opt)
@@ -99,7 +119,8 @@ int BPF_KPROBE(ig_cap_e, const struct cred *cred,
 
 	pid_tgid = bpf_get_current_pid_tgid();
 	args.cap = cap;
-	bpf_map_update_elem(&start, &pid_tgid, &args, BPF_ANY);
+	if (bpf_map_update_elem(&start, &pid_tgid, &args, BPF_ANY))
+		count_drop(); // start map full: the exit probe will miss this check
 	return 0;
 }
 
@@ -127,8 +148,10 @@ int BPF_KRETPROBE(ig_cap_x)
 
 	key.mntns_id_raw = gadget_get_current_mntns_id();
 	bitmap = bpf_map_lookup_or_try_init(&caps_per_mntns, &key, &blank_val);
-	if (!bitmap)
+	if (!bitmap) {
+		count_drop(); // aggregation map full: this container's caps are lost
 		return 0;
+	}
 
 	__sync_fetch_and_or(&bitmap->caps, 1ULL << cap);
 	return 0;
