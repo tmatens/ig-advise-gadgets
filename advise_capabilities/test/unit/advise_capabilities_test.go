@@ -24,6 +24,7 @@ package tests
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -90,13 +91,20 @@ func TestAdviseCapabilitiesGadget(t *testing.T) {
 		"advice must always drop ALL")
 	require.Contains(t, advice, "      - CHOWN\n",
 		"the exercised capability must be recommended")
-	// Capabilities the workload never exercised must not leak in.
+	// Capabilities the workload never exercised must not leak in. SYS_ADMIN is
+	// the sharp case: the runner is full-caps host root, and its execve
+	// triggers an opportunistic (CAP_OPT_NOAUDIT) CAP_SYS_ADMIN overcommit
+	// check that succeeds — the gadget's non-audit filter must keep it out of
+	// the recommendation (the concern raised on upstream issue #173).
+	require.NotContains(t, advice, "SYS_ADMIN")
 	require.NotContains(t, advice, "SYS_MODULE")
 	require.NotContains(t, advice, "SYS_BOOT")
 }
 
 // exerciseChown changes a temp file's owner and back — as root each chown
-// triggers a held cap_capable(CAP_CHOWN) check.
+// triggers a held cap_capable(CAP_CHOWN) check — and execs a trivial child so
+// the kernel's non-audit CAP_SYS_ADMIN overcommit probe fires for a full-caps
+// process (see the SYS_ADMIN assertion above).
 func exerciseChown() error {
 	f, err := os.CreateTemp("", "advise-caps-unit-*")
 	if err != nil {
@@ -109,7 +117,10 @@ func exerciseChown() error {
 	if err := os.Chown(name, 12345, -1); err != nil {
 		return err
 	}
-	return os.Chown(name, 0, -1)
+	if err := os.Chown(name, 0, -1); err != nil {
+		return err
+	}
+	return exec.Command("/bin/true").Run()
 }
 
 // containerNameEnricher mirrors the in-tree advise_seccomp unit test: the

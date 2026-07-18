@@ -66,8 +66,9 @@ capabilities/open tooling in specific, intentional ways a reviewer should know:
 | Aggregation | none | per-mntns union of held caps (u64 bitmap over the 41 caps), flushed on stop |
 | Denials | reports `capable=false` too | **held-only** — a denied check means the cap isn't in the workload's granted set; insufficiency is a downstream verification concern |
 | Runtime setup noise | reported (raw tracer) | excluded via ig's container-registration boundary; no comm-based filter (see design note) |
-| Rich context | audit flag, insetid, kernel/user stack, syscall, userns | **dropped** — an advisor needs "which caps, per container," not forensics |
-| Kept from core | — | the real-vs-subjective credential guard (overlayfs copy-up) so overridden-cred checks don't inflate the set |
+| Non-audit (opportunistic) checks | reported; hidden with `audit_only` | **always excluded** — a held non-audit check (e.g. the `CAP_SYS_ADMIN` overcommit probe on every exec) reflects possession, not need; recording it would hand an over-privileged container its excess caps back |
+| Rich context | audit flag, insetid, kernel/user stack, syscall, userns | **dropped** — an advisor needs "which caps, per container," not forensics (the audit flag is consumed as the filter above rather than emitted) |
+| Kept from core | — | the real-vs-subjective credential guard (overlayfs copy-up) and the non-audit check semantics, so neither overridden-cred nor opportunistic checks inflate the set |
 
 So `advise_capabilities` is `trace_capabilities`'s signal, reduced to the
 minimal per-container grant and rendered as the artifact issue #173 asks for. It
