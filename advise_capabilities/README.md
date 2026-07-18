@@ -86,9 +86,12 @@ appetite (it is `priority/P4` and went stale).
 
 ## Limitations
 
-- Records only *held* capabilities (`cap_capable` returned 0). Denials are not
-  emitted — insufficient/over-permissioned classification is left to downstream
-  verification.
+- Records only *held*, *audited* capability checks (`cap_capable` returned 0
+  and the check was not `CAP_OPT_NOAUDIT`). Denials are not emitted —
+  insufficient/over-permissioned classification is left to downstream
+  verification — and non-audit opportunistic checks (e.g. the `CAP_SYS_ADMIN`
+  overcommit probe on every exec) are excluded so an over-privileged container
+  is not recommended capabilities it merely possessed.
 - Dynamic-observation floor: only what the workload exercises in the window is
   seen. This is a *signal*, not a correctness proof — grade confidence and check
   coverage before enforcing the result.

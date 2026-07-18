@@ -34,6 +34,11 @@
 // capability number, so bit N corresponds to kernel capability N.
 #define CAP_MAX 64
 
+// include/linux/security.h
+#define CAP_OPT_NOAUDIT (1UL << 1)
+
+extern int LINUX_KERNEL_VERSION __kconfig;
+
 // Runtime-setup ("runc") noise: this gadget does NOT special-case the container
 // runtime by process name. Under container-scoped observation (--containername)
 // ig's own container-registration boundary already excludes the runtime's setup
@@ -116,6 +121,23 @@ int BPF_KPROBE(ig_cap_e, const struct cred *cred,
 	real_cred = BPF_CORE_READ(task, real_cred);
 	if (cred != real_cred)
 		return 0;
+
+	// Ignore opportunistic (non-audit) checks — e.g. the CAP_SYS_ADMIN probe
+	// in every execve's memory-overcommit accounting. They succeed whenever
+	// the capability happens to be held but say nothing about workload need,
+	// so recording them would make the advisor recommend a capability an
+	// over-privileged container merely possessed (SYS_ADMIN on any exec'ing
+	// container). bcc's capable and IG's trace_capabilities hide these by
+	// default (upstream issue #173 discussion / PR 914); an advisor must
+	// exclude them. Kernels < 5.1 pass `int audit` (1 = audited) instead of
+	// CAP_OPT_* flags in the fourth argument.
+	if (LINUX_KERNEL_VERSION >= KERNEL_VERSION(5, 1, 0)) {
+		if (cap_opt & CAP_OPT_NOAUDIT)
+			return 0;
+	} else {
+		if (!cap_opt)
+			return 0;
+	}
 
 	pid_tgid = bpf_get_current_pid_tgid();
 	args.cap = cap;

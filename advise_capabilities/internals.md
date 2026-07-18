@@ -88,9 +88,11 @@ task = bpf_get_current_task();
 real_cred = BPF_CORE_READ(task, real_cred);
 if (cred != real_cred)                     // ② subjective-credential guard
         return 0;
+if (cap_opt & CAP_OPT_NOAUDIT)             // ③ non-audit (opportunistic) guard
+        return 0;                          //   (int-audit form on kernels <5.1)
 args.cap = cap;
 if (bpf_map_update_elem(&start, &pid_tgid, &args, BPF_ANY))
-        count_drop();                      // ③ loud, not silent
+        count_drop();                      // ④ loud, not silent
 ```
 
 ① `gadget_should_discard_data_current()` is IG's standard mntns-based filter:
@@ -107,7 +109,22 @@ Recording those checks would attribute the *mounter's* capabilities to the
 container and inflate the recommendation. This guard is inherited verbatim
 from upstream `trace_capabilities`.
 
-③ See [The drops contract](#the-drops-contract).
+③ **Non-audit checks are excluded.** The kernel marks opportunistic
+capability probes with `CAP_OPT_NOAUDIT` — "does this task happen to have the
+cap?" checks whose denial is normal operation, the canonical one being the
+`CAP_SYS_ADMIN` probe in every `execve`'s memory-overcommit accounting.
+Such a check *succeeds* whenever the capability is merely held, so without
+this guard the advisor's headline use case — observing an over-privileged
+container to derive its minimal set — breaks: any exec'ing container granted
+`SYS_ADMIN` would get `SYS_ADMIN` recommended back (verified live before the
+guard was added). bcc's `capable` and IG's `trace_capabilities` hide these
+checks by default (the exact concern a maintainer raised on upstream issue
+#173); the advisor makes the filter unconditional rather than a param — an
+advisor has no forensic use for non-audit checks. Kernels < 5.1 pass an
+`int audit` (1 = audited) instead of `CAP_OPT_*` flags, handled via a
+`LINUX_KERNEL_VERSION` guard exactly as upstream does.
+
+④ See [The drops contract](#the-drops-contract).
 
 ### Exit probe walk (`ig_cap_x`)
 
@@ -240,23 +257,32 @@ Unit (`go/advice/advice_test.go`):
 - `TestOverflowWarning` — warning stays a comment and carries the count.
 
 E2E (`test/e2e.sh`): builds the image, runs a busybox container `chown`-ing in
-a loop, observes 8s, asserts the output is a `securityContext` block with
-`drop: ALL`, `add: CHOWN`, and — the minimality check — **no** `SYS_ADMIN`/
-`MKNOD` (capabilities the runtime's setup exercises but the workload never
-does). That last assertion is the live proof that runtime-setup noise is
-excluded by ig's container-registration boundary without any comm filter.
+a loop **with `--cap-add SYS_ADMIN` deliberately granted**, observes 8s, and
+asserts the output is a `securityContext` block with `drop: ALL`, `add: CHOWN`,
+and — the minimality check — **no** `SYS_ADMIN`/`MKNOD`. The SYS_ADMIN grant
+makes that assertion do double duty: every `execve` in the loop triggers a
+non-audit `CAP_SYS_ADMIN` overcommit check this container passes, so the
+assertion is a live regression test for the non-audit filter (and, as before,
+for runtime-setup noise being excluded by ig's container-registration boundary
+without any comm filter). The gadgetrunner unit test mirrors this: its runner
+is full-caps host root, execs a child, and `SYS_ADMIN` is asserted absent.
 
 ## Accuracy analysis — where it can be wrong
 
 Over-approximation (recommends more than strictly needed):
 
-- **Opportunistic checks.** `cap_opt` (which carries `CAP_OPT_NOAUDIT` for
-  speculative "does it happen to have this?" checks) is ignored; every held
-  check counts. A privileged process probed opportunistically for a capability
-  it holds but doesn't functionally need records that capability. Acceptable
-  for an advisor (the workload demonstrably *exercised* the check while
-  holding the cap), but worth knowing; filtering on `cap_opt` is possible
-  future work and a fair upstream design question.
+- **Nested user namespaces.** `cap_capable` is called per user namespace; a
+  workload that creates its *own* userns (`unshare -U`, rootless
+  container-in-container) holds full capabilities inside it, and audited
+  checks against that child namespace succeed without any grant on the real
+  container — yet they are recorded like any other held check. Enforcing the
+  advice still works (the nested userns keeps granting itself caps), so this
+  errs safe but can list caps the container doesn't need granted. Upstream
+  `trace_capabilities` exposes current/target userns ids for exactly this
+  analysis; filtering checks whose target userns is workload-owned is
+  possible future work. (The formerly-listed opportunistic-check
+  over-approximation is now closed by the non-audit guard in the entry
+  probe.)
 
 Under-approximation (misses things the workload needs — the dangerous
 direction, hence the loud-overflow design):
@@ -289,9 +315,13 @@ Downstream tooling can run the candidate policy and watch for new denials.
 
 **Q: The workload runs as root with all caps — doesn't every check succeed,
 inflating the set?**
-Only checks that *happen* are recorded. Running as root doesn't make the
-kernel check capabilities the workload never triggers. The residual inflation
-is the opportunistic-check case above.
+Only checks that *happen* are recorded, and the two classes of check that
+happen without reflecting need are both filtered: subjective-credential
+checks (guard ②) and non-audit opportunistic checks (guard ③ — without which
+any full-caps container that ever exec'd would be recommended `SYS_ADMIN`,
+verified live). Running as root doesn't make the kernel *audit-check*
+capabilities the workload never functionally triggers; the residual inflation
+is the nested-userns case in the accuracy analysis.
 
 **Q: Why key by mount namespace and not cgroup id / pid?**
 Mntns id is IG's canonical container identity: the whole gadget framework
