@@ -80,7 +80,7 @@ jobs:
           sudo tar -C /usr/local/bin -xzf /tmp/ig.tar.gz ig
           sudo install -d -o "$USER" /var/lib/ig
       - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | ig image login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | ig login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Build and push
         run: |
           G="${{ steps.tag.outputs.gadget }}"
