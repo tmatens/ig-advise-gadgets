@@ -9,6 +9,9 @@ self-contained, signable OCI image. Opinionated derivation — init-window
 suppression, confidence grading, entrypoint cross-checks, and Compose/k8s/OCI
 formatting — deliberately stays in downstream tooling, not in the gadget.
 
+For a function-by-function walkthrough of how the gadget works (eBPF hooks,
+maps, WASM operator, accuracy analysis), see [`internals.md`](internals.md).
+
 ## What it emits
 
 Two datasources:

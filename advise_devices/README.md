@@ -9,6 +9,9 @@ Sibling to `advise_capabilities` and `advise_filesystem`. The mechanical signal
 `privileged: true` container was actually using devices, and multi-format
 output, belong in downstream tooling.
 
+For a function-by-function walkthrough of how the gadget works (eBPF hooks,
+maps, WASM operator, accuracy analysis), see [`internals.md`](internals.md).
+
 ## What it emits
 
 - `devices` — raw per-(container, /dev path) map iterator, flushed on stop.
