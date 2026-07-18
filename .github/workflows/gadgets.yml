@@ -44,6 +44,18 @@ jobs:
       - name: Build gadget (eBPF + WASM)
         run: ig image build "${{ matrix.gadget }}" -t "ghcr.io/${{ github.repository_owner }}/${{ matrix.gadget }}:ci"
 
+      # Drives the just-built image through IG's gadgetrunner harness
+      # in-process (the advise_seccomp unit-test pattern): a runner thread in
+      # its own mount namespace generates the signal, the emitted advice is
+      # asserted. Needs root for eBPF, hence -exec 'sudo -E'.
+      - name: Gadget-level unit test (gadgetrunner harness)
+        working-directory: ${{ matrix.gadget }}/test/unit
+        env:
+          GADGET_REPOSITORY: ghcr.io/${{ github.repository_owner }}
+          GADGET_TAG: ci
+          IG_VERIFY_IMAGE: "false"
+        run: go test -v -exec 'sudo -E' ./...
+
   release:
     needs: build
     if: startsWith(github.ref, 'refs/tags/gadget/')

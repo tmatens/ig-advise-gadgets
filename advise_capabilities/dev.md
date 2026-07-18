@@ -8,7 +8,7 @@ gadget.yaml     datasources (capabilities + advise) and field annotations
 build.yaml      wasm: go/program.go
 go/program.go   WASM operator: bitmap → cap_drop/cap_add advice, one packet per container
 go/go.mod       out-of-tree module pin (github.com/inspektor-gadget/inspektor-gadget)
-test/unit/      unit test (requires the IG gadget test harness; see below)
+test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, needs root)
 ```
 
 ## Build
@@ -25,6 +25,23 @@ sudo install -d -o "$USER" /var/lib/ig
 
 If the WASM step reports `missing go.sum entry`, run `cd go && go mod tidy` once
 (needs network) to populate `go/go.sum`, then rebuild.
+
+## Gadget-level unit test
+
+`test/unit` drives the built image through IG's gadgetrunner harness
+in-process — the same pattern as the in-tree `advise_seccomp` unit test. It
+needs root (eBPF) and the image in the local OCI store; the image name is
+resolved from `GADGET_REPOSITORY`/`GADGET_TAG`:
+
+```sh
+ig image build . -t advise_capabilities:dev
+(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo -E' ./...)
+```
+
+`test/unit` is its own Go module: IG's `pkg/testing` packages are a heavy
+dependency tree kept out of the WASM module, and out-of-tree consumers must
+mirror the two `replace` directives from inspektor-gadget's go.mod (see the
+comment in `test/unit/go.mod`).
 
 ## Version pinning
 
