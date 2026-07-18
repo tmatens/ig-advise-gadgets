@@ -16,7 +16,7 @@ downstream tooling.
 
 ## Why these three
 
-Determined against IG v0.51.0 (issue/PR search + gadget catalog): IG ships only
+Determined against IG v0.54.0 (issue/PR search + gadget catalog): IG ships only
 two advisor gadgets — `advise_networkpolicy` and `advise_seccomp` — plus raw
 tracers (`trace_open`, `trace_capabilities`, …). There is no advisor for
 capabilities (upstream issue

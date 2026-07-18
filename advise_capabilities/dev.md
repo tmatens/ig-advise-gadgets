@@ -46,8 +46,11 @@ comment in `test/unit/go.mod`).
 ## Version pinning
 
 `go/go.mod` pins `github.com/inspektor-gadget/inspektor-gadget` — keep it in
-lockstep with the repo-root `IG_VERSION` file. Bumping the IG pin means bumping
-here and rebuilding.
+lockstep with the repo-root `IG_VERSION` file and `test/unit/go.mod`. Bumping
+the IG pin means bumping all three and rebuilding; on a bump also re-check the
+two `replace` directives copied from inspektor-gadget's go.mod into
+`test/unit/go.mod`, which do not propagate automatically and can drift when
+upstream changes them.
 
 ## Running
 
@@ -58,5 +61,7 @@ IG container selection (`--containername`, mntns filter) via
 ## Upstreaming
 
 To move in-tree, swap the `go/go.mod` require for the in-tree replace directive
-(commented there) and relocate the aggregation from the WASM operator to a core
-`generate_*` operator per `advise_networkpolicy`. Track upstream issue #173.
+(commented there). In-tree `advise_seccomp` keeps its aggregation in a WASM
+operator, so this gadget's shape can carry over as-is; relocating to a core
+`generate_*` operator per `advise_networkpolicy` is the alternative to raise
+with the maintainers. Track upstream issue #173.
