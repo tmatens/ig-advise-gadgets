@@ -4,6 +4,7 @@ name: "advise devices"
 category: security
 displayName: "advise devices"
 createdAt: "2026-07-02T00:00:00Z"
+digest: "2026-07-02T00:00:00Z"
 description: "Derive the minimal devices grant from the /dev nodes a container opens"
 logoURL: "https://inspektor-gadget.io/media/brand-icon.svg"
 license: "GPL-2.0-only AND Apache-2.0"
