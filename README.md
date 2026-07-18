@@ -85,6 +85,19 @@ runtime-suppressed and mntns-keyed, reusing `trace_open`'s path resolution.
   `drops` counter tracks every failed insert and, when non-zero, the operator
   logs a warning and appends a `# WARNING: … recommendation may be incomplete`
   YAML comment to every advice packet.
+
+### Output safety
+
+The advice is YAML meant to be parsed by downstream tooling and applied to
+container privilege, and some rendered values are **workload-controlled** — a
+Linux path or device node may contain any byte except NUL and `/`, including
+newlines and YAML metacharacters. Those values are therefore emitted through a
+YAML-scalar escaper (`go/advice/yaml.go`): a hostile container cannot inject a
+top-level key (e.g. `privileged: true`, an extra `cap_add:`) or a `---`
+document break into the recommendation. Ordinary paths render unquoted for
+readability; anything containing a newline or metacharacter is double-quoted and
+escaped. Container names, rendered only in a leading `# comment`, have control
+characters stripped for the same reason.
 - The capability bit→name mapping assumes kernel order (0..40); guarded by a unit
   test against the canonical list.
 - Opinionated judgement — confidence grading, entrypoint cross-checks,

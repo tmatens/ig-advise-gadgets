@@ -76,7 +76,7 @@ func Render(containerName string, devicePaths []string) string {
 
 	var b strings.Builder
 	if containerName != "" {
-		fmt.Fprintf(&b, "# %s\n", containerName)
+		fmt.Fprintf(&b, "# %s\n", commentText(containerName))
 	}
 	if len(devs) == 0 {
 		b.WriteString("# no non-default device nodes opened; no device grant required\n")
@@ -86,7 +86,7 @@ func Render(containerName string, devicePaths []string) string {
 	b.WriteString("# to compose devices: / docker --device (k8s requires a device plugin):\n")
 	b.WriteString("device_nodes:\n")
 	for _, d := range devs {
-		fmt.Fprintf(&b, "  - %s\n", d)
+		fmt.Fprintf(&b, "  - %s\n", yamlScalar(d))
 	}
 	return b.String()
 }
