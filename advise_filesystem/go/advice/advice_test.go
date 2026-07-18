@@ -111,3 +111,33 @@ func TestOverflowWarning(t *testing.T) {
 		t.Fatalf("warning missing count or incompleteness wording: %q", got)
 	}
 }
+
+func TestRenderPathInjectionEscaped(t *testing.T) {
+	// A write-intent open under a directory whose name embeds a newline + a YAML
+	// key must NOT produce a new top-level YAML node.
+	out := Render("app", []string{"/tmp/x\nprivileged: true/f"})
+	for _, line := range strings.Split(out, "\n") {
+		if line == "privileged: true" {
+			t.Fatalf("injected top-level key reached output:\n%s", out)
+		}
+	}
+	if !strings.Contains(out, `\n`) {
+		t.Fatalf("newline in path was not escaped:\n%s", out)
+	}
+}
+
+func TestRenderCommentInjectionSanitized(t *testing.T) {
+	out := Render("app\ncap_add: [SYS_ADMIN]", nil)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "cap_add:") {
+			t.Fatalf("newline in container name broke out of the comment:\n%s", out)
+		}
+	}
+}
+
+func TestRenderPlainPathUnquoted(t *testing.T) {
+	out := Render("", []string{"/var/lib/app/data.txt"})
+	if !strings.Contains(out, "  - /var/lib/app\n") {
+		t.Fatalf("ordinary path should stay unquoted for readability:\n%s", out)
+	}
+}

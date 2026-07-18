@@ -158,3 +158,12 @@ func TestOverflowWarning(t *testing.T) {
 		t.Fatalf("warning missing count or incompleteness wording: %q", got)
 	}
 }
+
+func TestRenderCommentInjectionSanitized(t *testing.T) {
+	out := Render("app\nprivileged: true", 0)
+	for _, line := range strings.Split(out, "\n") {
+		if line == "privileged: true" {
+			t.Fatalf("newline in container name broke out of the comment:\n%s", out)
+		}
+	}
+}

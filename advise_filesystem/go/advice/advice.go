@@ -54,7 +54,7 @@ func Render(containerName string, writtenPaths []string) string {
 
 	var b strings.Builder
 	if containerName != "" {
-		fmt.Fprintf(&b, "# %s\n", containerName)
+		fmt.Fprintf(&b, "# %s\n", commentText(containerName))
 	}
 	b.WriteString("securityContext:\n  readOnlyRootFilesystem: true\n")
 	if len(dirs) == 0 {
@@ -65,7 +65,7 @@ func Render(containerName string, writtenPaths []string) string {
 	b.WriteString("# tmpfs / emptyDir, or a persistent volume where a path must survive:\n")
 	b.WriteString("writable_paths:\n")
 	for _, d := range dirs {
-		fmt.Fprintf(&b, "  - %s\n", d)
+		fmt.Fprintf(&b, "  - %s\n", yamlScalar(d))
 	}
 	return b.String()
 }

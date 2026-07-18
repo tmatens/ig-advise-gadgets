@@ -63,7 +63,7 @@ func Render(containerName string, bitmap uint64) string {
 
 	var b strings.Builder
 	if containerName != "" {
-		fmt.Fprintf(&b, "# %s\n", containerName)
+		fmt.Fprintf(&b, "# %s\n", commentText(containerName))
 	}
 	b.WriteString("securityContext:\n  capabilities:\n    drop:\n      - ALL\n")
 	if len(held) == 0 {
