@@ -1,0 +1,72 @@
+---
+title: advise_devices
+sidebar_position: 2
+description: Derive the minimal devices grant from the /dev nodes a container opens
+---
+
+The `advise_devices` gadget derives the **minimal `devices:` grant a container
+needs**. It records the `/dev/*` nodes a container opens, per container (mount
+namespace), excludes the runtime's default device set, and emits the remaining
+non-default nodes.
+
+It is an *advisor*, not a tracer: it emits one aggregated recommendation per
+container. Mapping the nodes to the target form (Compose `devices:`, docker
+`--device`; Kubernetes needs a device plugin, so there is no direct
+`securityContext` equivalent) is left to downstream tooling.
+
+## Requirements
+
+- A BTF-enabled kernel (`CONFIG_DEBUG_INFO_BTF=y`) — the same requirement as the
+  core `trace_open` tracer this gadget derives from.
+- Root, for loading eBPF (`CAP_BPF` + `CAP_PERFMON`).
+
+## Getting started
+
+```bash
+sudo ig run ghcr.io/tmatens/advise_devices:latest --containername my-app
+```
+
+## Flags
+
+This gadget has no gadget-specific flags. Use the standard `ig`
+container-selection flags (`--containername`, `--timeout`, …).
+
+## Guide
+
+Run a container that opens a non-default device (`/dev/fuse`):
+
+```bash
+docker run -d --name demo --rm --device /dev/fuse busybox:latest \
+  sh -c 'while true; do cat /dev/fuse >/dev/null 2>&1; sleep 0.2; done'
+```
+
+Observe it:
+
+```bash
+sudo ig run ghcr.io/tmatens/advise_devices:latest --containername demo --timeout 8
+```
+
+The recommendation lists the non-default node the workload opened; default nodes
+like `/dev/null` are excluded:
+
+```yaml
+# demo
+# non-default device nodes the workload opened; the front-end maps these
+# to compose devices: / docker --device (k8s requires a device plugin):
+device_nodes:
+  - /dev/fuse
+```
+
+## Limitations
+
+- Records device *opens*; a device the workload never touched in the window is
+  invisible (dynamic-observation floor). Pairs with `advise_capabilities` to
+  decompose `privileged: true` into `cap_add` + `devices`, but the
+  AppArmor/seccomp dimension of `privileged` is not observable here.
+- The default-device set is Docker's; a runtime with a different default set may
+  need the exclusion list adjusted (it lives in `go/advice`).
+- Device-node paths are workload-controlled and may contain newlines or YAML
+  metacharacters, so they are emitted through a YAML-scalar escaper: a hostile
+  node name cannot inject a top-level key into the advice.
+- If the aggregation map fills during the run, dropped observations are counted
+  and a `# WARNING` comment is appended to the advice.
