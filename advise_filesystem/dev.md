@@ -3,7 +3,7 @@
 ## Layout
 
 ```
-program.bpf.c   eBPF: openat enter/exit → write-intent path → per-(mntns,path) map (GADGET_MAPITER)
+program.bpf.c   eBPF: openat enter/exit (write-intent opens) + security_path_* LSM kprobes (metadata mutations) → per-(mntns,path) map (GADGET_MAPITER)
 gadget.yaml     datasources (files + advise) and field annotations
 build.yaml      wasm: go/program.go
 go/program.go   WASM operator: group rows by container → read_only + tmpfs advice
@@ -17,9 +17,13 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 - The map key `struct fkey { mntns_id_raw; char path[512]; }` is 520 bytes, larger
   than the 512-byte BPF stack, so it is assembled in a per-CPU scratch map
   (`keybuf`) rather than on the stack.
-- Only successful, write-intent opens are recorded (`O_WRONLY`/`O_RDWR` or
-  `O_CREAT`/`O_TRUNC`/`O_APPEND`). Path is the symlink-resolved absolute path via
-  `read_full_path_of_open_file_fd`.
+- Two signals feed the map: successful write-intent opens (`O_WRONLY`/`O_RDWR`
+  or `O_CREAT`/`O_TRUNC`/`O_APPEND`; path resolved from the returned fd via
+  `read_full_path_of_open_file_fd`) and metadata-mutation *attempts* (mkdir,
+  rmdir, unlink, rename, symlink, link, mknod, truncate, chmod, chown) observed
+  at the `security_path_*` LSM kprobes, which record the parent directory
+  itself under the `dir_writes` counter. The LSM side needs
+  `CONFIG_SECURITY_PATH=y`. See `internals.md` for the full walkthrough.
 
 ## Build / test
 
@@ -39,6 +43,11 @@ dependency tree kept out of the WASM module, and out-of-tree consumers must
 mirror the two `replace` directives from inspektor-gadget's go.mod (see the
 comment in `test/unit/go.mod`).
 
-Keep `go/go.mod`'s IG pin in lockstep with the repo-root `IG_VERSION` file.
-Upstreaming: swap to the in-tree `module main` + replace form and move
-aggregation to a core `generate_*` operator (see advise_networkpolicy).
+Keep the IG pin in lockstep across the repo-root `IG_VERSION` file,
+`go/go.mod` and `test/unit/go.mod`; on a bump, also re-check the two `replace`
+directives copied from inspektor-gadget's go.mod into `test/unit/go.mod` —
+they do not propagate automatically and can drift when upstream changes them.
+Upstreaming: swap to the in-tree `module main` + replace form; in-tree
+`advise_seccomp` keeps its aggregation in a WASM operator, so this shape can
+carry over as-is (a core `generate_*` operator per `advise_networkpolicy` is
+the alternative to raise with maintainers).

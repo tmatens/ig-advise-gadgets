@@ -1,5 +1,5 @@
 name: advise filesystem
-description: Derive a read-only rootfs + the tmpfs paths a container actually writes
+description: Derive a read-only rootfs + the writable paths a container actually mutates
 homepageURL: https://github.com/tmatens/ig-advise-gadgets
 documentationURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem
 sourceURL: https://github.com/tmatens/ig-advise-gadgets/tree/main/advise_filesystem

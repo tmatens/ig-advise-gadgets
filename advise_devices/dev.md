@@ -29,4 +29,6 @@ sudo IG="$(command -v ig)" bash test/e2e.sh   # needs a host /dev/fuse (or set D
 ```
 
 `test/unit` is its own Go module; see the go.mod comment about mirroring IG's
-`replace` directives.
+`replace` directives. Keep its IG pin in lockstep with the repo-root
+`IG_VERSION` file and `go/go.mod`, and re-check the mirrored `replace` lines
+on every bump.
