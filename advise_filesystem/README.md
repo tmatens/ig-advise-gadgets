@@ -10,6 +10,9 @@ opinionated half — correlating writes against mounted volumes (a written path 
 a volume should stay a volume, not become tmpfs), confidence grading, and
 multi-format output — belongs in downstream tooling.
 
+For a function-by-function walkthrough of how the gadget works (eBPF hooks,
+maps, WASM operator, accuracy analysis), see [`internals.md`](internals.md).
+
 ## What it emits
 
 - `files` — raw per-(container, path) map iterator of write-intent opens (mntns
