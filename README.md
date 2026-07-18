@@ -132,6 +132,20 @@ upstream design discussion on issue #173, so it can be solved consistently with
 how IG already handles this for `advise_seccomp` rather than with a bespoke
 heuristic here.
 
+Note the deliberate divergence from in-tree `advise_seccomp`, which records
+**everything** kernel-side and filters only late, in WASM — its image-based
+port (inspektor-gadget PR
+[#4089](https://github.com/inspektor-gadget/inspektor-gadget/pull/4089)) found
+that kernel-side mntns filtering dropped runc's bootstrap syscalls, which a
+seccomp profile *must contain* or the container cannot start (the filter is
+installed before exec and applies to the runtime's bootstrap). These gadgets
+filter kernel-side anyway because the polarity of their artifacts is
+**inverted**: capability grants, writable paths and device grants apply only
+to the container's own processes, while the runtime performs its setup with
+its own full privileges — so setup activity must be *excluded* to keep the
+recommendation minimal, exactly where a seccomp profile must *include* it.
+Same mechanism (ig's registration boundary), opposite requirement.
+
 ## Build / run
 
 ```sh
