@@ -1,0 +1,85 @@
+---
+title: advise_capabilities
+sidebar_position: 0
+description: Derive the minimum Linux capability set each container actually uses
+---
+
+The `advise_capabilities` gadget derives the **minimum Linux capability set each
+container actually uses**. It traces `cap_capable()` and, per container (mount
+namespace), unions the capabilities the workload held when checked, then renders
+a Kubernetes `securityContext` capabilities block that drops `ALL` and adds only
+what was observed.
+
+It is an *advisor*, not a tracer: instead of one event per capability check it
+emits one aggregated recommendation per container. Opinionated judgement
+(confidence grading, entrypoint cross-checks, Compose/OCI formatting) is left to
+downstream tooling — see [Differences from core](#differences-from-core-inspektor-gadget).
+
+## Requirements
+
+- A BTF-enabled kernel (`CONFIG_DEBUG_INFO_BTF=y`) — the same requirement as the
+  core `trace_capabilities` tracer this gadget derives from.
+- Root, for loading eBPF (`CAP_BPF` + `CAP_PERFMON`).
+
+## Getting started
+
+```bash
+sudo ig run ghcr.io/tmatens/advise_capabilities:latest --containername my-app
+```
+
+Aggregation runs for the lifetime of the command; the recommendation is emitted
+once, when the gadget stops.
+
+## Flags
+
+This gadget has no gadget-specific flags. Use the standard `ig`
+container-selection flags (`--containername`, `--timeout`, …).
+
+## Guide
+
+Run a container that exercises `CAP_CHOWN`:
+
+```bash
+docker run -d --name demo --rm busybox:latest \
+  sh -c 'touch /tmp/f; while true; do chown 1:1 /tmp/f; chown 0:0 /tmp/f; sleep 0.2; done'
+```
+
+Observe it for a few seconds:
+
+```bash
+sudo ig run ghcr.io/tmatens/advise_capabilities:latest --containername demo --timeout 8
+```
+
+The recommendation drops all capabilities and adds only the one the workload
+used — the container runtime's setup capabilities are excluded:
+
+```yaml
+# demo
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+    add:
+      - CHOWN
+```
+
+## Differences from core Inspektor Gadget
+
+| | `trace_capabilities` (core) | `advise_capabilities` |
+|---|---|---|
+| Output | one event per capability check | one `securityContext` per container |
+| Aggregation | none | per-mntns union of held caps (u64 bitmap), flushed on stop |
+| Denials | reports `capable=false` too | held-only (a denial means the cap isn't in the workload's set) |
+| Runtime-setup noise | reported | excluded via ig's container-registration boundary |
+
+## Limitations
+
+- Records only *held* capabilities (`cap_capable` returned 0). Denials are not
+  emitted; insufficient/over-permissioned classification is left to downstream
+  verification.
+- Dynamic-observation floor: only what the workload exercises in the window is
+  seen — a signal, not a correctness proof. Grade confidence and check coverage
+  before enforcing.
+- If an eBPF map fills during the run, dropped observations are counted and a
+  `# WARNING` comment is appended to the advice — treat such a result as
+  incomplete.
