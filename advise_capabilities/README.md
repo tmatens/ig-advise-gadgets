@@ -89,3 +89,6 @@ appetite (it is `priority/P4` and went stale).
 - Dynamic-observation floor: only what the workload exercises in the window is
   seen. This is a *signal*, not a correctness proof — grade confidence and check
   coverage before enforcing the result.
+- If an eBPF map fills during the run, dropped observations are counted and a
+  `# WARNING` comment is appended to the advice (plus an operator warning) —
+  treat such a result as incomplete.

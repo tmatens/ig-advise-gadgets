@@ -86,6 +86,24 @@ struct {
 	__type(value, struct args_t);
 } start SEC(".maps");
 
+// An advisor must not silently under-report: a failed map insert means the
+// recommendation is missing a path the workload wrote. Count every such
+// failure; the WASM operator surfaces a warning when non-zero.
+struct {
+	__uint(type, BPF_MAP_TYPE_ARRAY);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} drops SEC(".maps");
+
+static __always_inline void count_drop(void)
+{
+	__u32 z = 0;
+	__u64 *d = bpf_map_lookup_elem(&drops, &z);
+	if (d)
+		__sync_fetch_and_add(d, 1);
+}
+
 static __always_inline int trace_enter(int flags)
 {
 	__u32 pid = (__u32)bpf_get_current_pid_tgid();
@@ -97,7 +115,8 @@ static __always_inline int trace_enter(int flags)
 		return 0;
 
 	args.flags = flags;
-	bpf_map_update_elem(&start, &pid, &args, BPF_ANY);
+	if (bpf_map_update_elem(&start, &pid, &args, BPF_ANY))
+		count_drop(); // start map full: the exit probe will miss this open
 	return 0;
 }
 
@@ -147,6 +166,8 @@ static __always_inline int trace_exit(struct syscall_trace_exit *ctx)
 	v = bpf_map_lookup_or_try_init(&writes_per_mntns, k, &zero);
 	if (v)
 		__sync_fetch_and_add(&v->count, 1);
+	else
+		count_drop(); // aggregation map full: this write path is lost
 
 cleanup:
 	bpf_map_delete_elem(&start, &pid);

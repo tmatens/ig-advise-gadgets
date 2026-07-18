@@ -49,3 +49,6 @@ sudo ig run ghcr.io/<you>/advise_devices:0.1.0 --containername my-app
   seccomp dimension of `privileged` is not observable here.
 - The default-device set is Docker's; a runtime with a different default set may
   need the exclusion list adjusted (it lives in `go/advice`).
+- If the aggregation map fills during the run, dropped observations are counted
+  and a `# WARNING` comment is appended to the advice — treat such a result as
+  incomplete.

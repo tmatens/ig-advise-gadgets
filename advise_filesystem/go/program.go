@@ -87,6 +87,7 @@ func gadgetPreStart() int32 {
 	err = filesDS.SubscribeArray(func(source api.DataSource, dataArr api.DataArray) error {
 		// The map iterator delivers the whole map at flush/stop; group the
 		// per-path rows by container before rendering one advice per container.
+		dropped := droppedObservations()
 		groups := map[uint64]*group{}
 		for j := 0; j < dataArr.Len(); j++ {
 			data := dataArr.Get(j)
@@ -135,7 +136,8 @@ func gadgetPreStart() int32 {
 				api.Warnf("creating packet: %s", err)
 				continue
 			}
-			adviseField.SetString(api.Data(nd), advice.Render(g.container, g.paths))
+			adviseField.SetString(api.Data(nd),
+				advice.Render(g.container, g.paths)+advice.OverflowWarning(dropped))
 			adviseDS.EmitAndRelease(api.Packet(nd))
 		}
 		return nil
@@ -145,6 +147,25 @@ func gadgetPreStart() int32 {
 		return 1
 	}
 	return 0
+}
+
+// droppedObservations reads the eBPF-side drop counter. Non-zero means a map
+// filled up during the run and the recommendation is missing observations; the
+// count is warned once and stamped into every advice packet as a YAML comment.
+func droppedObservations() uint64 {
+	dropsMap, err := api.GetMap("drops")
+	if err != nil {
+		api.Warnf("getting drops map: %s", err)
+		return 0
+	}
+	var dropped uint64
+	if err := dropsMap.Lookup(uint32(0), &dropped); err != nil {
+		return 0
+	}
+	if dropped > 0 {
+		api.Warnf("%d observation(s) dropped (eBPF map full); recommendations may be incomplete", dropped)
+	}
+	return dropped
 }
 
 func main() {}
