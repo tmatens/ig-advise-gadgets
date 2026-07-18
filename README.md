@@ -32,8 +32,11 @@ comm-based hack — see the design note below), emits a k8s `securityContext`
 The other two gadgets follow the same division.
 
 All three: eBPF (amd64+arm64) + Go→WASM operator compile via `ig image build`;
-pure aggregation host-unit-tested under `go/advice`; live signal verified by
-`test/e2e.sh`. CI in `.github/workflows/gadgets.yml` matrixes over them.
+pure aggregation host-unit-tested under `go/advice`; the full gadget driven
+in-process by an IG gadgetrunner harness test under `test/unit` (the in-tree
+`advise_seccomp` unit-test pattern); live signal verified by `test/e2e.sh`.
+CI in `.github/workflows/gadgets.yml` matrixes over them and runs both the
+advice unit tests and the gadgetrunner tests on every PR.
 
 ## Conventions
 

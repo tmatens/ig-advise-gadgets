@@ -8,7 +8,7 @@ build.yaml      wasm: go/program.go
 go/program.go   WASM operator: group rows by container → devices grant
 go/advice/      pure /dev-paths → non-default devices logic (host unit-tested)
 test/e2e.sh     root-gated end-to-end (container opening /dev/fuse → devices grant)
-test/unit/      IG gadgetrunner harness test (skeleton)
+test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, needs root)
 ```
 
 ## Notes
@@ -23,4 +23,10 @@ test/unit/      IG gadgetrunner harness test (skeleton)
 ig image build . -t advise_devices:dev
 (cd go && go test ./advice/)
 sudo IG="$(command -v ig)" bash test/e2e.sh   # needs a host /dev/fuse (or set DEVICE=)
+
+# Gadget-level unit test (gadgetrunner harness; root, host /dev/fuse):
+(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo -E' ./...)
 ```
+
+`test/unit` is its own Go module; see the go.mod comment about mirroring IG's
+`replace` directives.
