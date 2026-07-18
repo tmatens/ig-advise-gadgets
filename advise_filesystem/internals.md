@@ -172,6 +172,12 @@ Why the LSM layer instead of more syscall tracepoints:
   `CONFIG_SECURITY_PATH=y`, which is implied by AppArmor, TOMOYO and Landlock
   — enabled on every major distro. On a kernel without it the kprobes cannot
   attach and the gadget fails to start (loudly, not silently under-reporting).
+- **In-tree precedent**: IG's own `trace_link` gadget (PR
+  [#5317](https://github.com/inspektor-gadget/inspektor-gadget/pull/5317))
+  hooks `security_path_link`/`security_path_symlink` the same way; its review
+  weighed the `CONFIG_SECURITY_PATH` gate against `vfs_*` kprobe fallbacks
+  and settled on the requirement-note approach used here, and IG's CI kernels
+  have the option enabled.
 
 Two semantic points, both deliberate:
 
@@ -332,7 +338,9 @@ are stable in practice (tracee has hooked them for years), they see every
 entry point, and they hand over a resolved `struct path` instead of a user
 string. The trade-off taken is the `CONFIG_SECURITY_PATH` requirement, which
 AppArmor/TOMOYO/Landlock make near-universal; a kernel without it fails the
-kprobe attach loudly rather than under-reporting silently.
+kprobe attach loudly rather than under-reporting silently. In-tree
+`trace_link` made the same call (`security_path_*` kprobes plus a requirement
+note), so there is direct upstream precedent.
 
 **Q: Why resolve the path at exit from the fd instead of reading the
 `filename` argument at entry?**

@@ -341,6 +341,18 @@ fragile (misses `crun`, `youki`, …). Whole-host-mode setup filtering is
 deferred to the upstream design discussion (issue #173). Full rationale: the
 design note in the top-level [`README.md`](../README.md).
 
+**Q: In-tree `advise_seccomp` deliberately does NOT filter kernel-side — its
+image-based port (IG PR #4089) found that dropped runc's bootstrap syscalls.
+Why is kernel-side filtering right here?**
+Because the polarity is inverted. A seccomp profile is installed before exec
+and applies to the runtime's bootstrap, so bootstrap syscalls must be *in*
+the profile or the container cannot start — kernel-side filtering breaks the
+artifact. A capability grant applies only to the container's own processes;
+the runtime does its setup with its own full privileges, so setup caps must
+be *out* of the grant to keep it minimal. Same registration-boundary
+mechanism, opposite requirement — see the design note in the top-level
+README.
+
 **Q: Why does aggregation live in the WASM operator instead of a core IG
 `generate_*` operator?**
 Out-of-tree, WASM is the only extension surface — and in-tree `advise_seccomp`

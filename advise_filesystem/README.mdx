@@ -25,7 +25,8 @@ and volume-vs-tmpfs correlation are left to downstream tooling.
   core `trace_open` tracer this gadget derives from.
 - `CONFIG_SECURITY_PATH=y`, for the metadata-mutation coverage (the
   `security_path_*` LSM hooks). This is implied by AppArmor, TOMOYO or
-  Landlock and enabled on all major distributions.
+  Landlock and enabled on all major distributions — the same requirement as
+  the in-tree `trace_link` gadget, which hooks the same LSM layer.
 - Root, for loading eBPF (`CAP_BPF` + `CAP_PERFMON`).
 
 ## Getting started
