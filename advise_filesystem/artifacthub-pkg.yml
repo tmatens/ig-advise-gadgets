@@ -4,6 +4,7 @@ name: "advise filesystem"
 category: security
 displayName: "advise filesystem"
 createdAt: "2026-07-02T00:00:00Z"
+digest: "2026-07-02T00:00:00Z"
 description: "Derive a read-only rootfs + the tmpfs paths a container actually writes"
 logoURL: "https://inspektor-gadget.io/media/brand-icon.svg"
 license: "GPL-2.0-only AND Apache-2.0"

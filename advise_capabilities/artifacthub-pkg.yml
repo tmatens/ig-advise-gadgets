@@ -4,6 +4,7 @@ name: "advise capabilities"
 category: security
 displayName: "advise capabilities"
 createdAt: "2026-07-02T00:00:00Z"
+digest: "2026-07-02T00:00:00Z"
 description: "Derive the minimum Linux capability set each container actually uses"
 logoURL: "https://inspektor-gadget.io/media/brand-icon.svg"
 license: "GPL-2.0-only AND Apache-2.0"
