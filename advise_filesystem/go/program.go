@@ -13,9 +13,10 @@
 // limitations under the License.
 
 // WASM operator for the advise_filesystem gadget. The eBPF map iterator emits
-// one row per (container, write-intent path); this operator groups the paths by
-// container and renders a read_only + tmpfs recommendation, one packet per
-// container.
+// one row per (container, mutated path) — file-level writes and directory-entry
+// mutations, distinguished by the dir_writes counter; this operator groups the
+// rows by container and renders a read_only + tmpfs recommendation, one packet
+// per container.
 //
 // The mechanical aggregation lives here; the opinionated half (volume vs tmpfs
 // correlation, confidence, multi-format output) belongs in downstream tooling
@@ -53,7 +54,8 @@ func gadgetInit() int32 {
 
 type group struct {
 	container string
-	paths     []string
+	files     []string // file-level writes: writable dir is the parent
+	dirs      []string // directory-entry mutations: the path IS the writable dir
 }
 
 //go:wasmexport gadgetPreStart
@@ -66,6 +68,11 @@ func gadgetPreStart() int32 {
 	pathF, err := filesDS.GetField("path")
 	if err != nil {
 		api.Errorf("getting path field: %s", err)
+		return 1
+	}
+	dirWritesF, err := filesDS.GetField("dir_writes")
+	if err != nil {
+		api.Errorf("getting dir_writes field: %s", err)
 		return 1
 	}
 	mntnsF, err := filesDS.GetField("mntns_id_raw")
@@ -120,7 +127,19 @@ func gadgetPreStart() int32 {
 				g = &group{container: name}
 				groups[mntnsid] = g
 			}
-			g.paths = append(g.paths, p)
+			// A row with any directory-entry mutations is a directory row
+			// (a path cannot be both a written file and a mutated
+			// directory; dir takes precedence as the broader carve-out).
+			dirWrites, err := dirWritesF.Uint32(data)
+			if err != nil {
+				api.Warnf("reading dir_writes: %s", err)
+				continue
+			}
+			if dirWrites > 0 {
+				g.dirs = append(g.dirs, p)
+			} else {
+				g.files = append(g.files, p)
+			}
 		}
 
 		// Emit in a deterministic order (by mntns id) so output is stable.
@@ -137,7 +156,7 @@ func gadgetPreStart() int32 {
 				continue
 			}
 			adviseField.SetString(api.Data(nd),
-				advice.Render(g.container, g.paths)+advice.OverflowWarning(dropped))
+				advice.Render(g.container, g.files, g.dirs)+advice.OverflowWarning(dropped))
 			adviseDS.EmitAndRelease(api.Packet(nd))
 		}
 		return nil

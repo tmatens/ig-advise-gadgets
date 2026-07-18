@@ -11,7 +11,7 @@ downstream tooling.
 | Gadget | Emits | Validated |
 |---|---|---|
 | [`advise_capabilities`](advise_capabilities) | k8s `securityContext` capabilities (`drop: [ALL]` + minimal `add:`); runtime-setup caps excluded | unit + e2e (CAP_CHOWN container → `add: [CHOWN]`, no setup caps) |
-| [`advise_filesystem`](advise_filesystem) | `readOnlyRootFilesystem: true` + the `writable_paths:` the workload needs | unit + e2e (file-writer → `/var/lib/app` writable) |
+| [`advise_filesystem`](advise_filesystem) | `readOnlyRootFilesystem: true` + the `writable_paths:` the workload needs (write-intent opens **and** metadata-only mutations like mkdir/unlink/rename) | unit + e2e (file-writer → `/var/lib/app` writable; mkdir-only workload → `/var/cache/app` writable) |
 | [`advise_devices`](advise_devices) | minimal `device_nodes:` list (runtime default set excluded) | unit + e2e (`/dev/fuse` opener → grant, defaults excluded) |
 
 ## Why these three
@@ -73,8 +73,10 @@ is **not** a replacement for the tracer — it answers a different question.
 **`advise_filesystem` / `advise_devices` vs core**
 
 IG has **no** open-based advisor; core ships only the `trace_open` tracer. These
-add per-container aggregation of write-intent opens (→ `readOnlyRootFilesystem` +
-writable dirs) and `/dev` opens (→ non-default device nodes), both
+add per-container aggregation of rootfs mutations — write-intent opens plus
+metadata-only mutations (mkdir/unlink/rename/… via the `security_path_*` LSM
+hooks, which a read-only rootfs equally blocks) → `readOnlyRootFilesystem` +
+writable dirs — and `/dev` opens (→ non-default device nodes), both
 runtime-suppressed and mntns-keyed, reusing `trace_open`'s path resolution.
 
 **Shared, honest limits (all three)**

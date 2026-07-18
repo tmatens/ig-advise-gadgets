@@ -1,8 +1,10 @@
 # advise_filesystem gadget
 
 An Inspektor Gadget image-based gadget that derives a **read-only root filesystem
-+ the `tmpfs:` paths a container actually writes**, by tracing write-intent
-`open`/`openat` calls and unioning their directories per container.
++ the `tmpfs:` paths a container actually mutates**, by tracing write-intent
+`open`/`openat` calls plus metadata-only mutations (`mkdir`, `unlink`, `rename`,
+`truncate`, `chmod`, … via the `security_path_*` LSM hooks) and unioning the
+affected directories per container.
 
 Like `advise_capabilities`, the write-path signal + mechanical aggregation live
 on IG's extension surface as a self-contained, signable OCI image. The
@@ -15,8 +17,9 @@ maps, WASM operator, accuracy analysis), see [`internals.md`](internals.md).
 
 ## What it emits
 
-- `files` — raw per-(container, path) map iterator of write-intent opens (mntns
-  key + resolved `path` + `count`), flushed on stop. Consumed by the WASM operator.
+- `files` — raw per-(container, path) map iterator of observed mutations (mntns
+  key + resolved `path` + `count` file-write events + `dir_writes`
+  directory-entry mutations), flushed on stop. Consumed by the WASM operator.
 - `advise` — the k8s `securityContext` field `readOnlyRootFilesystem: true` plus a
   neutral `writable_paths:` list of the directories the container wrote to, one
   packet per container. Downstream tooling maps `writable_paths` to Compose
@@ -55,9 +58,14 @@ sudo ig run ghcr.io/<you>/advise_filesystem:0.1.0 --containername my-app
 
 ## Limitations
 
-- Records only write-intent opens that *succeeded*; a path the workload never
-  wrote to in the window is invisible (dynamic-observation floor — a signal, not
-  a proof; grade confidence before enforcing).
+- A path the workload never mutated in the window is invisible
+  (dynamic-observation floor — a signal, not a proof; grade confidence before
+  enforcing). Timestamp-only updates (`utimes`) and opens issued through
+  `openat2(2)` or io_uring are not traced (io_uring *metadata* ops are covered —
+  the LSM hooks fire regardless of entry point).
+- Metadata-mutation coverage needs `CONFIG_SECURITY_PATH=y` (implied by
+  AppArmor/TOMOYO/Landlock — all major distros); without it the
+  `security_path_*` kprobes cannot attach and the gadget fails to start.
 - tmpfs is derived at directory granularity from written files. Volume vs tmpfs
   correlation (does a written dir belong to a mount?) is intentionally left to
   downstream tooling, which can see the container's mounts.

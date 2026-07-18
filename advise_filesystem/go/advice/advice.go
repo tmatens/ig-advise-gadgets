@@ -23,17 +23,31 @@ import (
 	"strings"
 )
 
-// TmpfsDirs reduces a set of written file paths to the sorted, deduplicated
-// parent directories that would need to be writable. tmpfs is applied at
-// directory granularity, so this is what a read_only rootfs must carve out.
+// TmpfsDirs reduces the observed mutations to the sorted, deduplicated
+// directories that would need to be writable. tmpfs is applied at directory
+// granularity, so this is what a read_only rootfs must carve out. Two inputs
+// with different granularity semantics:
+//
+//   - writtenFiles are file-level mutations (write-intent opens, truncate,
+//     chmod, chown); the writable directory is the file's parent.
+//   - writtenDirs are directory-entry mutations (mkdir, unlink, rename, …)
+//     recorded against the parent directory itself; the path IS the writable
+//     directory.
+//
 // Non-absolute or empty paths are ignored.
-func TmpfsDirs(writtenPaths []string) []string {
+func TmpfsDirs(writtenFiles, writtenDirs []string) []string {
 	set := map[string]struct{}{}
-	for _, p := range writtenPaths {
+	for _, p := range writtenFiles {
 		if p == "" || !strings.HasPrefix(p, "/") {
 			continue
 		}
 		set[path.Dir(path.Clean(p))] = struct{}{}
+	}
+	for _, d := range writtenDirs {
+		if d == "" || !strings.HasPrefix(d, "/") {
+			continue
+		}
+		set[path.Clean(d)] = struct{}{}
 	}
 	dirs := make([]string, 0, len(set))
 	for d := range set {
@@ -43,14 +57,15 @@ func TmpfsDirs(writtenPaths []string) []string {
 	return dirs
 }
 
-// Render turns a container's observed write-intent paths into a neutral
-// read-only-rootfs recommendation: the k8s securityContext field
-// readOnlyRootFilesystem plus the writable directories the workload needs. The
-// front-end maps writable_paths to the target form (Compose tmpfs:, k8s emptyDir
-// volumes, or a persistent volume where a path must survive restarts). With no
-// writes it recommends a plain read-only rootfs.
-func Render(containerName string, writtenPaths []string) string {
-	dirs := TmpfsDirs(writtenPaths)
+// Render turns a container's observed mutations (file-level writes plus
+// directory-entry mutations, see TmpfsDirs) into a neutral read-only-rootfs
+// recommendation: the k8s securityContext field readOnlyRootFilesystem plus
+// the writable directories the workload needs. The front-end maps
+// writable_paths to the target form (Compose tmpfs:, k8s emptyDir volumes, or
+// a persistent volume where a path must survive restarts). With no observed
+// mutations it recommends a plain read-only rootfs.
+func Render(containerName string, writtenFiles, writtenDirs []string) string {
+	dirs := TmpfsDirs(writtenFiles, writtenDirs)
 
 	var b strings.Builder
 	if containerName != "" {

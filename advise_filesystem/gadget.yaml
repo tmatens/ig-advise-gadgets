@@ -16,6 +16,9 @@ datasources:
       count:
         annotations:
           columns.hidden: true
+      dir_writes:
+        annotations:
+          columns.hidden: true
       mntns_id_raw:
         annotations:
           columns.hidden: true
