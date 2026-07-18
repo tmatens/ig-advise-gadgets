@@ -5,11 +5,14 @@ description: Derive a read-only rootfs + the tmpfs paths a container actually wr
 ---
 
 The `advise_filesystem` gadget derives a **read-only root filesystem plus the
-directories a container actually writes to**. It traces write-intent
-`open`/`openat` calls and, per container (mount namespace), unions the parent
-directories of the files opened for writing, then renders a Kubernetes
-`securityContext` with `readOnlyRootFilesystem: true` and the writable paths the
-workload needs.
+directories a container actually mutates**. It observes two signals per
+container (mount namespace): write-intent `open`/`openat` calls, and
+metadata-only mutations — `mkdir`, `rmdir`, `unlink`, `rename`, `symlink`,
+`link`, `mknod`, `truncate`, `chmod`, `chown` — which change the filesystem
+without opening a file for write but are equally blocked by a read-only
+rootfs. It unions the affected directories and renders a Kubernetes
+`securityContext` with `readOnlyRootFilesystem: true` and the writable paths
+the workload needs.
 
 It is an *advisor*, not a tracer: it emits one aggregated recommendation per
 container rather than one event per open. Mapping the writable paths to the
@@ -20,6 +23,9 @@ and volume-vs-tmpfs correlation are left to downstream tooling.
 
 - A BTF-enabled kernel (`CONFIG_DEBUG_INFO_BTF=y`) — the same requirement as the
   core `trace_open` tracer this gadget derives from.
+- `CONFIG_SECURITY_PATH=y`, for the metadata-mutation coverage (the
+  `security_path_*` LSM hooks). This is implied by AppArmor, TOMOYO or
+  Landlock and enabled on all major distributions.
 - Root, for loading eBPF (`CAP_BPF` + `CAP_PERFMON`).
 
 ## Getting started
@@ -35,11 +41,13 @@ container-selection flags (`--containername`, `--timeout`, …).
 
 ## Guide
 
-Run a container that writes to `/var/lib/app`:
+Run a container that writes a file under `/var/lib/app` and only ever
+creates/removes directories under `/var/cache/app` (a metadata-only mutation —
+no file is opened for write there):
 
 ```bash
 docker run -d --name demo --rm busybox:latest \
-  sh -c 'mkdir -p /var/lib/app; while true; do echo x > /var/lib/app/data.txt; sleep 0.2; done'
+  sh -c 'mkdir -p /var/lib/app /var/cache/app; while true; do echo x > /var/lib/app/data.txt; mkdir /var/cache/app/work; rmdir /var/cache/app/work; sleep 0.2; done'
 ```
 
 Observe it:
@@ -48,8 +56,8 @@ Observe it:
 sudo ig run ghcr.io/tmatens/advise_filesystem:latest --containername demo --timeout 8
 ```
 
-The recommendation is a read-only rootfs with the one directory the workload
-wrote to carved out:
+The recommendation is a read-only rootfs with both mutated directories carved
+out — including the mkdir-only one, which pure open-tracing would miss:
 
 ```yaml
 # demo
@@ -58,14 +66,16 @@ securityContext:
 # writable directories the workload needs; the front-end maps these to
 # tmpfs / emptyDir, or a persistent volume where a path must survive:
 writable_paths:
+  - /var/cache/app
   - /var/lib/app
 ```
 
 ## Limitations
 
-- Records only write-intent opens that *succeeded*; a path the workload never
-  wrote to in the window is invisible (dynamic-observation floor — a signal, not
-  a proof). Grade confidence before enforcing.
+- A path the workload never mutated in the window is invisible
+  (dynamic-observation floor — a signal, not a proof). Grade confidence before
+  enforcing. Timestamp-only updates (`utimes`) and opens issued through
+  `openat2(2)` or io_uring are not traced.
 - tmpfs is derived at directory granularity. Volume-vs-tmpfs correlation (does a
   written dir belong to a mount?) is left to downstream tooling, which can see
   the container's mounts. Note a raw `writable_paths` entry is not directly safe

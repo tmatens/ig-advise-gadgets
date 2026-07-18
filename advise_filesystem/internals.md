@@ -7,9 +7,11 @@ by function/section name rather than line number so they survive edits.
 
 ## What it computes
 
-For each observed container, the set of rootfs paths opened with **write
-intent**, reduced to their parent directories — i.e. the writable carve-outs a
-read-only root filesystem would need:
+For each observed container, the set of rootfs paths the workload **mutated**
+— files opened with write intent (reduced to their parent directories) plus
+directories whose entries were changed by metadata-only operations (`mkdir`,
+`unlink`, `rename`, …) — i.e. the writable carve-outs a read-only root
+filesystem would need:
 
 ```yaml
 # my-app
@@ -25,18 +27,21 @@ writable_paths:
 ## Pipeline at a glance
 
 ```
-open(2) / openat(2) syscalls
-  │
-  ├─ sys_enter_open{,at} tracepoint   filter → write_intent(flags)? → stash flags
-  └─ sys_exit_open{,at}  tracepoint   open succeeded? → resolve path from the
-  │                                   returned fd → count under (mntns, path)
-  ▼
-writes_per_mntns  (BPF hash: {mntns, path[512]} → count)
+open(2) / openat(2) syscalls                     metadata mutations (mkdir,
+  │                                              unlink, rename, symlink, link,
+  ├─ sys_enter_open{,at} tracepoint              mknod, truncate, chmod, chown)
+  │    filter → write_intent(flags)? → stash       │
+  └─ sys_exit_open{,at}  tracepoint                └─ security_path_* LSM kprobes
+       open succeeded? → resolve path                   filter → resolve parent-dir
+       from the returned fd → count                     (or file) struct path →
+       under (mntns, path)                              count under (mntns, path)
+  ▼                                                ▼
+writes_per_mntns  (BPF hash: {mntns, path[512]} → {count, dir_writes})
   │   GADGET_MAPITER → "files" datasource, flushed ONCE at gadget stop
   ▼
-WASM operator (go/program.go)   group rows by container
+WASM operator (go/program.go)   group rows by container, split files vs dirs
   ▼
-advice package (go/advice)      paths → parent dirs → escaped YAML list
+advice package (go/advice)      files → parent dirs, dirs as-is → escaped YAML
   ▼
 "advise" datasource             one text packet per container
 ```
@@ -136,7 +141,7 @@ is skipped or clipped — pathological for real workloads, but worth knowing.
 
 | Map | Type | Size | Role | On overflow |
 |---|---|---|---|---|
-| `writes_per_mntns` | hash: `{mntns, path[512]}` → `{count}` | 8192 | the aggregate; one row per distinct written path per container | `count_drop()` — path lost, loudly |
+| `writes_per_mntns` | hash: `{mntns, path[512]}` → `{count, dir_writes}` | 8192 | the aggregate; one row per distinct mutated path per container (`count` = file-write events, `dir_writes` = directory-entry mutations) | `count_drop()` — path lost, loudly |
 | `keybuf` | 1-entry per-CPU array of `fkey` | 1 | 520-byte key scratch (stack limit) | n/a |
 | `start` | hash: tid → `{flags}` | 10240 | enter→exit marker + flags | `count_drop()` — one open missed, loudly |
 | `drops` | 1-entry array of u64 | 1 | failed-insert counter | n/a |
@@ -144,6 +149,44 @@ is skipped or clipped — pathological for real workloads, but worth knowing.
 8192 distinct written paths across all observed containers is generous for the
 target workloads (server containers write to a handful of directories); the
 map stores *distinct* paths, not events — repeated writes only bump `count`.
+
+### Metadata mutations — the `security_path_*` kprobes
+
+`mkdir`, `rmdir`, `unlink`, `rename`, `symlink`, `link`, `mknod`, `truncate`,
+`chmod` and `chown` mutate the filesystem **without opening a file for
+write**, yet a read-only rootfs blocks them all — pure open-tracing would
+advise a read-only rootfs that breaks a mkdir-only workload. These are
+observed at the **path-based LSM hooks** (`security_path_mkdir` & co.) via
+kprobes, with a shared `record_path_write(path, dir_write)` helper.
+
+Why the LSM layer instead of more syscall tracepoints:
+
+- **One hook per operation, every entry point.** `unlink` alone has two
+  syscalls (`unlink`, `unlinkat`) plus io_uring; the LSM hook is downstream of
+  all of them, so io_uring metadata ops are covered for free.
+- **The hook hands us a resolved `struct path`** of the parent directory,
+  which `get_path_str()` turns into the canonical container-view absolute
+  path — no user-string/`dirfd` resolution problem, the same quality of path
+  the open side gets from its fd.
+- **Availability**: the hooks exist on kernels built with
+  `CONFIG_SECURITY_PATH=y`, which is implied by AppArmor, TOMOYO and Landlock
+  — enabled on every major distro. On a kernel without it the kprobes cannot
+  attach and the gadget fails to start (loudly, not silently under-reporting).
+
+Two semantic points, both deliberate:
+
+- **The parent directory is recorded as the written object** (`dir_writes`).
+  A directory-entry mutation writes the *directory's contents*, so the
+  writable carve-out is the directory itself — the advice layer must not take
+  its parent. That is why the map value distinguishes `dir_writes` from
+  file-level `count` (truncate/chmod/chown record the file, like the open
+  side, and reduce to the parent). A rename records **both** the source and
+  destination directories.
+- **Attempts, not completions.** The hook fires after path lookup but before
+  the operation executes, so a mutation that later fails (quota, LSM denial)
+  still counts — the same conservative write-*intent* stance as the open
+  side, erring toward a writable dir that wasn't strictly needed rather than
+  missing one that was.
 
 ### The drops contract
 
@@ -183,20 +226,26 @@ here delivers one row per **(container, path)**, so the callback:
    the kernel-side filter), empty paths skipped.
 2. **Groups rows by mntns id**, capturing the container name from the first
    row of each group (`k8s.containerName`, falling back to
-   `runtime.containerName` for plain-Docker runs).
+   `runtime.containerName` for plain-Docker runs), and **splits each row into
+   the file list or the dir list** on `dir_writes > 0` (a path cannot be both
+   a written file and a mutated directory; dir takes precedence as the
+   broader carve-out).
 3. Emits packets sorted by mntns id, so multi-container output is
    deterministic run-to-run.
-4. Each packet: `advice.Render(name, paths) + advice.OverflowWarning(dropped)`,
-   with `dropped` read once per flush from the `drops` map via `api.GetMap`.
+4. Each packet: `advice.Render(name, files, dirs) +
+   advice.OverflowWarning(dropped)`, with `dropped` read once per flush from
+   the `drops` map via `api.GetMap`.
 
 ## The advice package (`go/advice`)
 
 Pure Go, no `wasmapi` import — unit-testable on the host.
 
-- `TmpfsDirs` — reduce written *files* to their parent *directories*
-  (`path.Dir(path.Clean(p))`), deduplicated and sorted. Directory granularity
-  because that is what the enforcement mechanisms take: Compose `tmpfs:` and
-  k8s `emptyDir` mount a directory, not a file. Parent/child dirs are *not*
+- `TmpfsDirs` — merge the two inputs into one writable-directory set: written
+  *files* reduce to their parent directory (`path.Dir(path.Clean(p))`),
+  mutated *directories* are kept as-is (`path.Clean(d)` — the path already IS
+  the writable dir), then deduplicate and sort. Directory granularity because
+  that is what the enforcement mechanisms take: Compose `tmpfs:` and k8s
+  `emptyDir` mount a directory, not a file. Parent/child dirs are *not*
   merged (`/var/lib/app` and `/var/lib/app/cache` may both appear) — collapsing
   them is a policy choice (mount the parent as one tmpfs vs two mounts) left to
   the front-end. Non-absolute or empty paths are ignored defensively; the eBPF
@@ -225,24 +274,26 @@ Pure Go, no `wasmapi` import — unit-testable on the host.
 
 ## What the tests pin down
 
-Unit (`go/advice/advice_test.go`): `TmpfsDirs` reduction (dedup, sorting,
-non-absolute ignored), the Render invariants, and the YAML-injection cases —
-a newline-bearing path must render as one quoted scalar, a newline-bearing
-container name must stay inside its comment.
+Unit (`go/advice/advice_test.go`): `TmpfsDirs` reduction (files → parent,
+dirs kept as-is, mixed dedup, sorting, non-absolute ignored), the Render
+invariants, and the YAML-injection cases — a newline-bearing path (via either
+input) must render as one quoted scalar, a newline-bearing container name
+must stay inside its comment.
 
-E2E (`test/e2e.sh`): builds the image, runs a container writing under
-`/var/lib/app` in a loop, observes it, and asserts the advice contains
-`readOnlyRootFilesystem: true` and `/var/lib/app` under `writable_paths:` —
-the live proof of the whole pipeline (tracepoint → path resolution →
-aggregation → mapiter → WASM → render).
+E2E (`test/e2e.sh`): builds the image, runs a container that writes a file
+under `/var/lib/app` **and only ever mkdir/rmdirs under `/var/cache/app`**,
+observes it, and asserts both directories appear under `writable_paths:`. The
+`/var/cache/app` assertion is the regression proof for the LSM-hook coverage:
+no file is ever opened for write there, so pure open-tracing would miss it.
 
 ## Accuracy analysis — where it can be wrong
 
 Over-approximation (recommends more writable surface than strictly needed):
 
 - Write-*intent*, not write-*fact*: a file opened `O_RDWR` but never written
-  still counts. Conservative in the safe direction — advising a writable dir
-  that wasn't strictly needed never breaks the workload.
+  still counts, and a metadata mutation that fails after the LSM hook (quota,
+  MAC denial) still counts. Conservative in the safe direction — advising a
+  writable dir that wasn't strictly needed never breaks the workload.
 - Writes to already-mounted volumes appear in `writable_paths` too; the
   front-end (which can see the container's mounts) is expected to correlate —
   a written path on a volume should stay a volume, not become tmpfs.
@@ -252,16 +303,14 @@ overflow design):
 
 - **Observation window** — only what ran is seen; a signal, not a proof.
 - **Map overflow** — counted and stamped into the output (`drops`).
-- **Metadata-only mutations**: `mkdir`, `rename`, `unlink`, `symlink`,
-  `mknod`, `truncate(2)`-without-open, `utimes` mutate the filesystem without
-  opening a file for write, and a read-only rootfs blocks them — but no
-  `open` tracepoint fires. A workload whose only rootfs mutation is e.g.
-  `mkdir` would be advised a fully read-only rootfs that then breaks. Known
-  gap, honest answer: extending coverage means additional tracepoints
-  (`sys_enter_mkdirat`, `renameat2`, …) — a scoping decision deliberately
-  deferred (and worth raising in an upstream design discussion).
+- **Timestamp-only updates**: `utimes`/`utimensat` go through
+  `notify_change`/`security_inode_setattr` — there is no path-based LSM hook
+  for them, so a workload whose only mutation is touching timestamps is
+  invisible. Narrow residual gap, documented in the README.
 - **Non-tracepoint open paths**: `openat2(2)` (rare from libc — glibc uses
-  `openat`) and io_uring's `IORING_OP_OPENAT` bypass these two tracepoints.
+  `openat`) and io_uring's `IORING_OP_OPENAT` bypass the two open
+  tracepoints. Note this applies to *opens* only — metadata mutations are
+  caught at the LSM layer regardless of entry point, io_uring included.
 
 ## Hard questions a reviewer might ask
 
@@ -271,6 +320,19 @@ Those are userspace mechanisms with per-mount setup and event-loss semantics;
 the tracepoint pair is namespace-agnostic, needs no per-container setup,
 attributes events to containers via IG's existing mntns machinery, and reuses
 the audited `trace_open` code path.
+
+**Q: You argue syscall tracepoints beat kprobes for stability — then attach
+kprobes for the metadata operations. Which is it?**
+Both, deliberately. For *opens* a stable syscall tracepoint exists and matches
+upstream `trace_open`, so it wins. For metadata mutations there is no
+tracepoint at the right layer, and covering them syscall-by-syscall would mean
+~20 tracepoints that still miss io_uring. The `security_path_*` hooks are the
+kernel's own abstraction point for exactly these operations — their signatures
+are stable in practice (tracee has hooked them for years), they see every
+entry point, and they hand over a resolved `struct path` instead of a user
+string. The trade-off taken is the `CONFIG_SECURITY_PATH` requirement, which
+AppArmor/TOMOYO/Landlock make near-universal; a kernel without it fails the
+kprobe attach loudly rather than under-reporting silently.
 
 **Q: Why resolve the path at exit from the fd instead of reading the
 `filename` argument at entry?**
