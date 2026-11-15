@@ -20,7 +20,7 @@
 // read-only rootfs with exactly the written directory carved out.
 //
 // Requires root (eBPF) and the gadget image in the local OCI store; see dev.md
-// for the build + invocation (go test -exec 'sudo -E' with GADGET_TAG set).
+// for the build + invocation (go test -exec 'sudo --preserve-env=...' with GADGET_TAG set).
 package tests
 
 import (

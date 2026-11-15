@@ -35,7 +35,7 @@ resolved from `GADGET_REPOSITORY`/`GADGET_TAG`:
 
 ```sh
 ig image build . -t advise_capabilities:dev
-(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo -E' ./...)
+(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...)
 ```
 
 `test/unit` is its own Go module: IG's `pkg/testing` packages are a heavy

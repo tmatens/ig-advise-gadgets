@@ -47,14 +47,15 @@ jobs:
       # Drives the just-built image through IG's gadgetrunner harness
       # in-process (the advise_seccomp unit-test pattern): a runner thread in
       # its own mount namespace generates the signal, the emitted advice is
-      # asserted. Needs root for eBPF, hence -exec 'sudo -E'.
+      # asserted. Needs root for eBPF, hence -exec sudo. The variables are named because sudo-rs
+      # (the default sudo on ubuntu-26.04 runners) ignores a bare -E.
       - name: Gadget-level unit test (gadgetrunner harness)
         working-directory: ${{ matrix.gadget }}/test/unit
         env:
           GADGET_REPOSITORY: ghcr.io/${{ github.repository_owner }}
           GADGET_TAG: ci
           IG_VERIFY_IMAGE: "false"
-        run: go test -v -exec 'sudo -E' ./...
+        run: go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...
 
       # Live end-to-end: observes a real docker workload under
       # --containername. This is the only tier that exercises ig's
