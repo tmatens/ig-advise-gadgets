@@ -20,12 +20,12 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 
 ## Build / test
 ```sh
-ig image build . -t advise_devices:dev
+sudo ig image build . -t advise_devices:dev   # root store, where the root-run tests look
 (cd go && go test ./advice/)
 sudo IG="$(command -v ig)" bash test/e2e.sh   # needs a host /dev/fuse (or set DEVICE=)
 
 # Gadget-level unit test (gadgetrunner harness; root, host /dev/fuse):
-(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo -E' ./...)
+(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...)
 ```
 
 `test/unit` is its own Go module; see the go.mod comment about mirroring IG's

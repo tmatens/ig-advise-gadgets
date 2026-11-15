@@ -1,8 +1,9 @@
 name: gadgets
 
-# Build (and on tag, push) the image-based gadgets. Build compiles the eBPF +
-# WASM operator and needs no root; the OCI store dir is pre-created for the
-# runner user so build/push do not need root.
+# Build (and on tag, push) the image-based gadgets. Since ig v0.58 a non-root
+# ig keeps its images in ~/.ig/oci-store while root uses /var/lib/ig/oci-store.
+# The build job builds with sudo so the root-run harness test finds the image.
+# The release job builds and pushes as the runner user, in one store.
 
 on:
   pull_request:
@@ -39,22 +40,23 @@ jobs:
           curl -sSL -o /tmp/ig.tar.gz \
             "https://github.com/inspektor-gadget/inspektor-gadget/releases/download/${IG_VERSION}/ig-linux-amd64-${IG_VERSION}.tar.gz"
           sudo tar -C /usr/local/bin -xzf /tmp/ig.tar.gz ig
-          sudo install -d -o "$USER" /var/lib/ig
 
       - name: Build gadget (eBPF + WASM)
-        run: ig image build "${{ matrix.gadget }}" -t "ghcr.io/${{ github.repository_owner }}/${{ matrix.gadget }}:ci"
+        run: sudo ig image build "${{ matrix.gadget }}" -t "ghcr.io/${{ github.repository_owner }}/${{ matrix.gadget }}:ci"
 
       # Drives the just-built image through IG's gadgetrunner harness
       # in-process (the advise_seccomp unit-test pattern): a runner thread in
       # its own mount namespace generates the signal, the emitted advice is
-      # asserted. Needs root for eBPF, hence -exec 'sudo -E'.
+      # asserted. Needs root for eBPF, hence -exec sudo. The variables are named
+      # because sudo-rs
+      # (the default sudo on ubuntu-26.04 runners) ignores a bare -E.
       - name: Gadget-level unit test (gadgetrunner harness)
         working-directory: ${{ matrix.gadget }}/test/unit
         env:
           GADGET_REPOSITORY: ghcr.io/${{ github.repository_owner }}
           GADGET_TAG: ci
           IG_VERIFY_IMAGE: "false"
-        run: go test -v -exec 'sudo -E' ./...
+        run: go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...
 
       # Live end-to-end: observes a real docker workload under
       # --containername. This is the only tier that exercises ig's

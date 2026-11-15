@@ -28,14 +28,14 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 ## Build / test
 
 ```sh
-ig image build . -t advise_filesystem:dev            # eBPF + WASM; store write needs root
+sudo ig image build . -t advise_filesystem:dev       # eBPF + WASM; root store, where the root-run tests look
 (cd go && go test ./advice/)                         # pure logic, host, no root
 sudo IG="$(command -v ig)" bash test/e2e.sh          # live signal, needs root
 
 # Gadget-level unit test: drives the built image through IG's gadgetrunner
 # harness in-process (root for eBPF; image resolved from the local OCI store
 # via GADGET_REPOSITORY/GADGET_TAG — here the plain local tag built above):
-(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo -E' ./...)
+(cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...)
 ```
 
 `test/unit` is its own Go module: IG's `pkg/testing` packages are a heavy
