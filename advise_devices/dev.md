@@ -20,7 +20,7 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 
 ## Build / test
 ```sh
-ig image build . -t advise_devices:dev
+sudo ig image build . -t advise_devices:dev   # root store, where the root-run tests look
 (cd go && go test ./advice/)
 sudo IG="$(command -v ig)" bash test/e2e.sh   # needs a host /dev/fuse (or set DEVICE=)
 

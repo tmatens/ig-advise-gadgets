@@ -28,7 +28,7 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 ## Build / test
 
 ```sh
-ig image build . -t advise_filesystem:dev            # eBPF + WASM; store write needs root
+sudo ig image build . -t advise_filesystem:dev       # eBPF + WASM; root store, where the root-run tests look
 (cd go && go test ./advice/)                         # pure logic, host, no root
 sudo IG="$(command -v ig)" bash test/e2e.sh          # live signal, needs root
 

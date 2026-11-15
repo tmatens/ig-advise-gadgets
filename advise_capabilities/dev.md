@@ -18,9 +18,9 @@ test/unit/      IG gadgetrunner harness test (own module; runs the real gadget, 
 # generated objects to a folder; this step does NOT need root.
 ig image build . -t advise_capabilities:dev -o ./out
 
-# The final tag/store step writes /var/lib/ig/oci-store and DOES need root.
-# One-time fix to build+push as your user:
-sudo install -d -o "$USER" /var/lib/ig
+# Since ig v0.58 the store depends on who runs ig: your user writes
+# ~/.ig/oci-store, root writes /var/lib/ig/oci-store. Build with sudo when a
+# root-run step (ig run, the harness test, e2e) must find the image.
 ```
 
 If the WASM step reports `missing go.sum entry`, run `cd go && go mod tidy` once
@@ -34,7 +34,7 @@ needs root (eBPF) and the image in the local OCI store; the image name is
 resolved from `GADGET_REPOSITORY`/`GADGET_TAG`:
 
 ```sh
-ig image build . -t advise_capabilities:dev
+sudo ig image build . -t advise_capabilities:dev
 (cd test/unit && GADGET_TAG=dev IG_VERIFY_IMAGE=false go test -v -exec 'sudo --preserve-env=GADGET_REPOSITORY,GADGET_TAG,IG_VERIFY_IMAGE' ./...)
 ```
 
